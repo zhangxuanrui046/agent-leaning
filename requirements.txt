@@ -1,0 +1,9 @@
+# Agent 项目依赖
+# 核心依赖
+openai>=1.0.0          # OpenAI API 客户端（兼容内部 API）
+tiktoken>=0.5.0        # Token 计数
+pyyaml>=6.0            # YAML 配置文件解析
+
+# 可选增强（后续按需安装）
+# rich>=13.0.0         # 彩色终端输出
+# httpx>=0.25.0        # 更详细的 HTTP 调试信息
