@@ -84,23 +84,29 @@
 - [ ] Day 5: 实现工具注册 `tool_registry.py` + Agent Loop `agent.py`
 - [ ] Day 6: Context 管理（token 跟踪 + 压缩）
 
-## Day 5 — 2026-05-16（周五）
+## Day 5 — 2026-05-16（周五）⏳ 实际投入约 4h
 
 ### 今日目标
-- [ ] 
+- [x] 实现工具注册 `tool_registry.py`（Day 4）
+- [x] 实现 Agent Loop `agent.py`（Day 4）
+- [x] 整合 `test_api.py` 端到端测试
 
 ### 完成内容
-- 
+1. **工具注册中心**：`src/tool_registry.py` — `init_tools()` 注册四个工具 + `partial` 绑定 `sandbox_dir`、`get_tools_schema()` 用 `inspect.signature()` + `get_type_hints()` 生成 OpenAI function calling 格式的 JSON Schema、`execute_tool()` 统一调度执行。
+2. **Agent Loop**：`src/agent.py` — `run(task, verbose=True)` 实现 `while turn < max_turns` 主循环：chat → 判断 tool_calls 还是 text → 执行工具 → 追加 tool result → 继续循环 → 返回最终答案。支持 verbose 调试模式打印每轮工具调用详情。
+3. **`llm_client.chat()` 扩展**：新增可选 `tools` 参数，支持传入工具 Schema。
+4. **`test_api.py` 重构**：从手动工具调用逻辑精简为直接调用 `agent.run()`，43行 → 19行。
 
 ### 遇到的问题
-- 
+- **`partial` + `inspect.signature()` 不兼容**：`functools.partial` 绑定 `sandbox_dir` 后，`inspect.signature()` 在 Python 3.10 下未正确剥离已绑定参数，导致 Schema 暴露了 `sandbox_dir`。模型拿到这个参数后疯狂试探各种路径（C:\、D:\、/tmp、/mnt/data...），15 轮全部失败。解决：在 Schema 生成时手动过滤 `sandbox_dir` 参数。
+- **`file_read` 忘记传参**：添加 `sandbox_dir` 参数后，`file_read` 内部调用 `safe_resolve_path` 时漏传了 `sandbox_dir`，只有 `file_write` 写对了。
+- **`str / str` 类型错误**：`sandbox_dir` 从 config 传入是字符串，但 `safe_resolve_path` 里用了 Path 的 `/` 运算符。需先 `Path(sandbox_dir).resolve()` 转换。
+- **bash 重定向在 `shell=False` 下无效**：模型尝试 `cmd /c echo xxx > file` 写文件，但 `>` 重定向需要 shell 解析。`file_write` 修好后模型就不再绕道 bash 了。
+- **模型穷举路径耗尽轮数**：当工具持续返回 error 时，模型不会停止而是尝试不同参数，直到 `max_turns=20` 耗尽。说明 Agent Loop 需要后续加入"连续失败 N 次则终止"的保护机制。
 
 ### 明天计划
-- [ ] 
-
----
-
-## Day 6 — 2026-05-17（周六）
+- [ ] Day 6 补进度：Context 管理（`src/context.py` — token 计数 + 历史压缩）
+- [ ] 如时间允许，写集成测试（多工具协同场景）
 
 ### 今日目标
 - [ ] 
