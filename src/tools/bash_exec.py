@@ -7,6 +7,14 @@ from pathlib import Path
 FORBIDDEN_COMMANDS = {
     "rm", "rmdir", "del", "format", "shutdown", "reboot", "chmod", "chown", "sudo", "su"
 }
+CMD_BUILTINS = {
+    "dir", "mkdir", "md", "rmdir", "rd",
+    "type", "echo", "copy", "move", "rename", "ren",
+    "cd", "chdir", "set", "cls", "date", "time",
+    "find", "findstr", "more", "sort", "comp", "fc",
+    "ver", "vol", "title", "color", "mklink",
+    "where", "whoami", "hostname",
+}
 
 def bash_exec(command:str,sandbox_dir:str,timeout: int  = 30)->dict:
     SANDBOX_DIR = Path(sandbox_dir).resolve()
@@ -23,7 +31,9 @@ def bash_exec(command:str,sandbox_dir:str,timeout: int  = 30)->dict:
 
     cmd_name = os.path.basename(tokens[0])
     if cmd_name.lower()  in FORBIDDEN_COMMANDS:
-        return {"success": False, "error": f"错误：命令‘{cmd_name}是危险命令"}
+        return {"success": False, "error": f"错误：命令'{cmd_name}'是危险命令"}
+    if cmd_name.lower() in CMD_BUILTINS:
+        tokens = ["cmd","/c"] + tokens
     try:
         env = os.environ.copy()
         env["HOME"] = str(SANDBOX_DIR)
