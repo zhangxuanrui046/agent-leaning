@@ -1,7 +1,8 @@
 import json
 from src.llm_client import chat
 from src.tool_registry import init_tools,get_tools_schema,execute_tool
-from src.config import AGENT
+from src.config import AGENT,LLM
+from src.logger import log_event,init_run
 from src.context import (
     count_tokens,
     compress_messages_sliding_window,
@@ -10,8 +11,17 @@ from src.context import (
 )
 context_max_tokens = AGENT["context_max_tokens"]
 def run(task: str, verbose: bool = True, messages:list | None = None ):
+    if not hasattr(run,"_log_path"):
+        run._log_path = None
+    if messages is None:
+        run_id,path = init_run(log_dir = "logs")
+        run._log_path = path
+        log_event(path,type = "agent_start",task = task,max_turns = AGENT["max_turns"],model = LLM["model"])
+    else:
+        path = run._log_path
     sandbox_dir = AGENT["sandbox_dir"]
     max_turns = AGENT["max_turns"]
+    
     init_tools(sandbox_dir)
     tools_schema = get_tools_schema()
 
@@ -49,7 +59,9 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
         )
         if verbose and (len(messages) != before_len or count_tokens(messages) != before_tokens):
             print(f"  [Context] 压缩完成: {before_len}条({before_tokens}tk) → {len(messages)}条({count_tokens(messages)}tk)")
+        log_event(path,type = "llm_request",turn = turn,tokens = count_tokens(messages))
         resp = chat(messages, tools=tools_schema)
+        log_event(path,type = "llm_response",turn = turn,tokens = vars(resp.usage) if resp.usage else None)
         if resp.usage:
             total_prompt += resp.usage.prompt_tokens
             total_completion  += resp.usage.completion_tokens
@@ -64,13 +76,17 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
                 func_name = tool_call.function.name
                 try:
                     args = json.loads(tool_call.function.arguments)
+                    log_event(path,type = "tool_call",turn = turn,name = func_name,args = args)
                 except json.JSONDecodeError as e:
                     tool_result = {"success": False, "error": str(e)}
+                    log_event(path,type = "error",message = str(e))
                 else:
                     try:
                         tool_result = execute_tool(func_name, args)
+                        
                     except Exception as e:
                         tool_result = {"success": False, "error": str(e)}
+                        log_event(path,type = "error",message = str(e))
 
                 if verbose:
                     status = "OK" if tool_result.get("success") else "FAIL"
@@ -81,6 +97,7 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
                     for key in ("content","output"):
                         if key in tool_result and isinstance(tool_result[key],str):
                             tool_result[key] = truncate_tool_result(tool_result[key])
+                    log_event(path,type = "tool_result",turn = turn,result = tool_result)
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
@@ -89,6 +106,7 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
             continue
 
         if choice.message.content is not None:
+            log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion)
             if verbose:
                 print(f"[Turn {turn + 1}] 模型给出最终答案")
                 print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
@@ -98,10 +116,12 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
 
         if verbose:
             print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
+        log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion)
         return "模型无返回结果",messages
-
+    log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion)
     if verbose:
         print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
     return f"超过最大轮数限制({max_turns})，任务未完成",messages
+    
 
 
