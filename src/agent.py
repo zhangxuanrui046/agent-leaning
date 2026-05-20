@@ -9,7 +9,7 @@ from src.context import (
     truncate_tool_result,
 )
 context_max_tokens = AGENT["context_max_tokens"]
-def run(task: str, verbose: bool = True) -> str:
+def run(task: str, verbose: bool = True, messages:list | None = None ):
     sandbox_dir = AGENT["sandbox_dir"]
     max_turns = AGENT["max_turns"]
     init_tools(sandbox_dir)
@@ -23,10 +23,13 @@ def run(task: str, verbose: bool = True) -> str:
     "文件路径和 bash 命令直接使用文件名或相对路径即可，不要添加 workspace/ 前缀。"
     "所有文件操作和命令执行都限制在沙盒内，遵守安全规则。"
 )
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": task},
-    ]
+    if messages is None:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": task},
+        ]
+    else :
+        messages.append({"role":"user","content":task})
     total_prompt = 0
     total_completion = 0
     for turn in range(max_turns):
@@ -89,16 +92,16 @@ def run(task: str, verbose: bool = True) -> str:
             if verbose:
                 print(f"[Turn {turn + 1}] 模型给出最终答案")
                 print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
-            return choice.message.content
+            return choice.message.content,messages
 
             
 
         if verbose:
             print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
-        return "模型无返回结果"
+        return "模型无返回结果",messages
 
     if verbose:
         print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
-    return f"超过最大轮数限制({max_turns})，任务未完成"
+    return f"超过最大轮数限制({max_turns})，任务未完成",messages
 
 
