@@ -188,15 +188,74 @@
 | 类比 | 直接截断 | ResNet 残差链接：y = x + F(x) |
 
 ### 明天计划
-- [ ] Day 7: Infra 层 — 轨迹日志（trajectory JSONL）+ API 重试 + run_id
-- [ ] 撰写工作报告中 Context 管理相关章节
-- [ ] 修复 `context_max_tokens` 为合理默认值（建议 8000→1500 用于测试对比）
+- [x] Day 7: 轨迹日志 + run_id + 多轮对话（已完成）
+- [ ] API 重试（推迟至 Day 8）
 
-### 学到了什么
-- 
+---
 
-### 踩过的坑
-- 
+## Day 7 — 2026-05-20（周二）⏳ 实际投入约 4h
 
-### 如果重来一次，会怎么做
-- 
+### 今日目标
+- [x] 实现 logger.py：轨迹日志（trajectory JSONL）
+- [x] 实现唯一 run_id（时间戳 + 随机后缀）
+- [x] 集成 logger 到 agent.py（7 种事件类型全覆盖）
+- [x] 实现多轮对话支持（agent.py messages 参数）
+- [x] 更新 test_api.py 支持多轮对话和清空重置
+- [x] 项目审计：AUDIT.md
+- [ ] API 自动重试（推迟至明天）
+
+### 完成内容
+
+1. **logger.py 实现**：
+   - `init_run(log_dir)` → 生成 `run_id`（`%Y%m%d-%H%M%S` + 4 位随机字符）+ 创建 `logs/traj_{run_id}.jsonl`，返回 `(run_id, path)`
+   - `log_event(path, **kwargs)` → 追加一行 JSON 到 jsonl，自动附加 `timestamp` 字段
+   - timestamp 从 Unix 时间戳改为人可读的 `strftime("%Y-%m-%d %H:%M:%S")` 格式
+
+2. **run_id 设计**：
+   - 格式：`20260520-233425-jgkj`（15 位时间 + 4 位随机）
+   - 优势：比 `uuid4().hex[:8]` 更具可管理性——文件名排序即时间排序，一眼看出运行时刻
+   - 加 4 位随机后缀防止同一秒两次运行冲突
+
+3. **agent.py logger 集成**：
+   - 闭包模式存储 `log_path`：`if not hasattr(run, "_log_path")` 首次初始化，后续调用复用，不通过返回值传递
+   - 覆盖 7 种事件：`agent_start`、`llm_request`、`llm_response`、`tool_call`、`tool_result`、`error`、`agent_end`
+   - 三个出口（正常、无返回、超时）均记录 `agent_end`
+   - tool_result 记在截断之后，日志不膨胀
+
+4. **多轮对话支持**：
+   - `agent.py`：`run(task, messages=None)` — 首次 `messages=None` 新建，后续传入则追加
+   - `test_api.py`：维护 `messages` 变量，支持 `clear` 命令重置对话
+   - 多轮模式下不重复 `init_run`——log 文件首次创建，后续复用
+
+5. **AUDIT.md**：逐条对照原始 4 项要求，记录完成状态、7 个代码缺陷、未完成的 4 个 Infra 模块及实现方案
+
+### 遇到的问题
+
+- **`init_run` 解包遗漏**：`path = init_run()` 只接了一个值，实际返回 `(run_id, path)` 元组，导致 `path` 接到 `run_id` 字符串，日志写到错误位置。修复为 `run_id, path = init_run(...)`。
+
+- **`max_turns` 定义前使用**：`log_event(..., max_turns=max_turns, ...)` 写在了 `max_turns = AGENT["max_turns"]` 之前。交换两行位置解决。
+
+- **`AGENT["max_tokens"]` vs `AGENT["max_turns"]`**：config 里的键是 `max_turns`，误写为 `max_tokens` 导致 KeyError。
+
+- **`LLM["models"]` vs `LLM["model"]`**：config 键是单数 `model`，误写为复数。同时 `model` 在 `LLM` 段不在 `AGENT` 段，需额外 `from src.config import LLM`。
+
+- **`CompletionUsage` 不可 JSON 序列化**：`resp.usage` 是 openai 的对象，不是普通 dict。`json.dumps` 报 `TypeError`。修复为拆成独立字段：`prompt_tokens=resp.usage.prompt_tokens, completion_tokens=resp.usage.completion_tokens`。
+
+- **`log_event` 记 `tool_result[key]` 在 for 循环外**：循环变量 `key` 泄漏到循环外，当 tool_result 无 `content`/`output` 字段（如 calculator 返回 `result`）时，`tool_result["output"]` 触发 KeyError。修复为记录完整 `tool_result` dict，且移入 `isinstance` 判断块内。
+
+- **闭包存 path 的方案选择**：最初想用函数属性 `run._log_path` 存，差点被 `hasattr` 的初始化和 `messages is None` 时的分支逻辑绕晕。最终确认：`hasattr` → 首次置 None → `messages is None` 时 init_run 覆盖 → 后续调用直接读 `run._log_path`。三路分支正确。
+
+### 关键学习
+
+- `uuid4` 是随机数（不暴露机器信息），`uuid1` 含 MAC + 时间戳
+- `Path("/")` 运算符就是路径拼接，Windows 自动转 `\`
+- `**kwargs` 在函数定义处打包参数为 dict，在调用处解包 dict 为参数
+- `json.dumps(ensure_ascii=False)` 保留中文原样，不加会在日志看到 `\uXXXX`
+- `time.time()` 返回 Unix 时间戳（秒），`strftime()` 转为人可读格式
+- Python 的 for 循环变量在循环结束后仍然存在（变量泄漏），容易在循环外误用
+
+### 明天计划
+- [ ] API 自动重试（指数退避）
+- [ ] `$` 成本计算
+- [ ] main.py 入口
+- [ ] 修复 AUDIT.md 中记录的其余缺陷
