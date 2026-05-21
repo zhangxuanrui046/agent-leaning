@@ -1,7 +1,7 @@
 import json
 from src.llm_client import chat
 from src.tool_registry import init_tools,get_tools_schema,execute_tool
-from src.config import AGENT,LLM
+from src.config import AGENT,LLM,PRICING
 from src.logger import log_event,init_run
 from src.context import (
     count_tokens,
@@ -46,6 +46,12 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
         messages.append({"role":"user","content":task})
     total_prompt = 0
     total_completion = 0
+    def _print_cost():
+        if not verbose:
+            return
+        input_cost = total_prompt / 1000000 * PRICING["input_per_1m"]
+        output_cost = total_completion / 1000000 * PRICING["output_per_1m"]
+        print(f"[总token] prompt = {total_prompt},completion = {total_completion}| cost:${input_cost + output_cost:.4f}")
     for turn in range(max_turns):
         before_len = len(messages)
         before_tokens = count_tokens(messages)
@@ -110,21 +116,27 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
             continue
 
         if choice.message.content is not None:
-            log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion)
+            input_cost = total_prompt / 1000000 * PRICING["input_per_1m"]
+            output_cost = total_completion / 1000000 * PRICING["output_per_1m"]
+            log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion,cost = f"${input_cost + output_cost:.4f}")
             if verbose:
                 print(f"[Turn {turn + 1}] 模型给出最终答案")
-                print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
+                _print_cost()
             return choice.message.content,messages
 
             
 
         if verbose:
-            print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
-        log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion)
+            _print_cost()
+        input_cost = total_prompt / 1000000 * PRICING["input_per_1m"]
+        output_cost = total_completion / 1000000 * PRICING["output_per_1m"]
+        log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion,cost = f"${input_cost + output_cost:.4f}")
         return "模型无返回结果",messages
-    log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion)
+    input_cost = total_prompt / 1000000 * PRICING["input_per_1m"]
+    output_cost = total_completion / 1000000 * PRICING["output_per_1m"]
+    log_event(path,type = "agent_end",result = choice.message.content,total_tokens = total_prompt + total_completion,cost = f"${input_cost + output_cost:.4f}")
     if verbose:
-        print(f"[总Token] prompt={total_prompt}, completion={total_completion}")
+        _print_cost()
     return f"超过最大轮数限制({max_turns})，任务未完成",messages
     
 
