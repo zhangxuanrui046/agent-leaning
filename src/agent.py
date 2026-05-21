@@ -13,12 +13,15 @@ context_max_tokens = AGENT["context_max_tokens"]
 def run(task: str, verbose: bool = True, messages:list | None = None ):
     if not hasattr(run,"_log_path"):
         run._log_path = None
+        run._run_id = None
     if messages is None:
         run_id,path = init_run(log_dir = "logs")
         run._log_path = path
+        run._run_id = run_id
         log_event(path,type = "agent_start",task = task,max_turns = AGENT["max_turns"],model = LLM["model"])
     else:
         path = run._log_path
+        run_id = run._run_id
     sandbox_dir = AGENT["sandbox_dir"]
     max_turns = AGENT["max_turns"]
     
@@ -26,6 +29,7 @@ def run(task: str, verbose: bool = True, messages:list | None = None ):
     tools_schema = get_tools_schema()
 
     system_prompt = (
+    f"运行id：{run_id}。"
     "你是一个具备工具调用能力的智能助手。"
     "你可以使用计算器、读写沙盒内的文件、在 Windows 沙盒中执行命令。"
     "请用中文回答用户，如果必须使用英文工具输出也请解释清楚。"
